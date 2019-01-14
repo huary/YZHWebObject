@@ -1,0 +1,15 @@
+//
+//  PrefixHeader.pch
+//  YZHURLSessionTaskOperation
+//
+//  Created by yuan on 2019/1/5.
+//  Copyright © 2019年 yuan. All rights reserved.
+//
+
+#ifdef __OBJC__
+    #import <UIKit/UIKit.h>
+    #import "YZHKitMacro.h"
+    #import "YZHUtil.h"
+
+#define YZHTTP  (0)
+#endif
