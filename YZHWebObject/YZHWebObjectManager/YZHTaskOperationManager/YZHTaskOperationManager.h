@@ -14,7 +14,7 @@ typedef NS_ENUM(NSInteger, YZHTaskOperationExecutionOrder)
 {
     YZHTaskOperationExecutionOrderNone  = -1,
     YZHTaskOperationExecutionOrderFIFO  = 0,
-    YZHTaskOperationExecutionOrderLIFO  = 1,
+    YZHTaskOperationExecutionOrderFILO  = 1,
 };
 
 @class YZHTaskOperationManager;
@@ -38,12 +38,14 @@ typedef void(^YZHTaskOperationCompletionBlock)(YZHTaskOperationManager *manager,
 
 -(YZHTaskOperation*)addTaskOperation:(YZHTaskOperationBlock)taskBlock completion:(YZHTaskOperationCompletionBlock)completion forKey:(id)key addToQueue:(BOOL)addToQueue;
 
+-(void)startAllTaskOperationInQueue;
+
+-(void)startTaskOperationForKey:(id)key;
+
 -(YZHTaskOperation*)taskOperationForKey:(id)key;
 
 -(void)addTaskOperationIntoQueue:(YZHTaskOperation*)taskOperation forKey:(id)key;
 
 -(void)cancelTaskOperationForKey:(id)key;
-
--(void)printAllTaskOparations;
 
 @end

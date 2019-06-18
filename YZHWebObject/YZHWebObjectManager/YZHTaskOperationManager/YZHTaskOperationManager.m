@@ -17,7 +17,11 @@
 
 @property (nonatomic, weak) YZHTaskOperation *lastTaskOperation;
 
-@property (nonatomic, strong) NSMapTable<id,YZHTaskOperation*> *taskOperationMapTable;
+//是从开始创建到完成时保留的对象
+@property (nonatomic, strong) NSMapTable<id, YZHTaskOperation*> *taskOperationMapTable;
+
+//还没有进入到operationQueue中的YZHTaskOperation
+@property (nonatomic, strong) NSHashTable<YZHTaskOperation*> *notInQueueTaskOperationList;
 
 @end
 
@@ -44,14 +48,22 @@
 -(NSMapTable<id,YZHTaskOperation*>*)taskOperationMapTable
 {
     if (_taskOperationMapTable == nil) {
-        _taskOperationMapTable = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory valueOptions:NSPointerFunctionsWeakMemory];
+        _taskOperationMapTable = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory valueOptions:NSPointerFunctionsStrongMemory];
     }
     return _taskOperationMapTable;
 }
 
--(YZHTaskOperation*)_firstLIFOTaskOperation
+-(NSHashTable<YZHTaskOperation*>*)notInQueueTaskOperationList
 {
-    if (self.executionOrder != self.executionOrder == YZHTaskOperationExecutionOrderLIFO) {
+    if (_notInQueueTaskOperationList == nil) {
+        _notInQueueTaskOperationList = [NSHashTable hashTableWithOptions:NSPointerFunctionsWeakMemory];
+    }
+    return _notInQueueTaskOperationList;
+}
+
+-(YZHTaskOperation*)_firstFILOTaskOperation
+{
+    if (self.executionOrder != YZHTaskOperationExecutionOrderFILO) {
         return nil;
     }
     YZHTaskOperation *firstLIFOTaskOperation = [[YZHTaskOperation alloc] init];
@@ -84,7 +96,7 @@
     
     WEAK_SELF(weakSelf);
     taskOperation.startBlock = ^(YZHTaskOperation *taskOperation) {
-        NSLog(@"%@-beginStart.operationCnt=%ld,operations=%@",taskOperation.key,self.operationQueue.operationCount,self.operationQueue.operations);
+//        NSLog(@"%@-beginStart.operationCnt=%ld,operations=%@,thread=%@",taskOperation.key,self.operationQueue.operationCount,self.operationQueue.operations,[NSThread currentThread]);
         [weakSelf _willStartAction:key];
         if (taskBlock) {
             taskBlock(weakSelf, taskOperation);
@@ -92,6 +104,7 @@
     };
     
     taskOperation.didFinishBlock = ^(YZHTaskOperation *taskOperation) {
+//        NSLog(@"%@-didFinish.operationCnt=%ld,operations=%@,thread=%@",key,self.operationQueue.operationCount,self.operationQueue.operations,[NSThread currentThread]);
         [weakSelf _didFinishAction:key];
         if (completion) {
             completion(weakSelf, taskOperation);
@@ -99,8 +112,8 @@
     };
     
     sync_lock(self.lock, ^{
-        if (self.executionOrder == YZHTaskOperationExecutionOrderLIFO) {
-            YZHTaskOperation *lastTaskOperation = self.lastTaskOperation ? self.lastTaskOperation : [self _firstLIFOTaskOperation];
+        if (self.executionOrder == YZHTaskOperationExecutionOrderFILO) {
+            YZHTaskOperation *lastTaskOperation = self.lastTaskOperation ? self.lastTaskOperation : [self _firstFILOTaskOperation];
             [lastTaskOperation addDependency:taskOperation];
         }
         else if (self.executionOrder == YZHTaskOperationExecutionOrderFIFO) {
@@ -112,12 +125,49 @@
         }
         if (addToQueue) {
             [self.operationQueue addOperation:taskOperation];            
-            [self.taskOperationMapTable setObject:taskOperation forKey:key];
         }
+        else {
+            [self.notInQueueTaskOperationList addObject:taskOperation];
+        }
+        [self.taskOperationMapTable setObject:taskOperation forKey:key];
         self.lastTaskOperation = taskOperation;
     });
     
     return taskOperation;
+}
+
++(BOOL)_canAddOperationIntoQueue:(YZHTaskOperation*)taskOperation
+{
+    if (taskOperation && !taskOperation.isExecuting && !taskOperation.finished) {
+        return YES;
+    }
+    return NO;
+}
+
+-(void)startAllTaskOperationInQueue
+{
+    sync_lock(self.lock, ^{
+        NSEnumerator *objEnumerator = [self.notInQueueTaskOperationList objectEnumerator];
+        YZHTaskOperation *taskOperation = nil;
+        while (taskOperation = [objEnumerator nextObject]) {
+            if ([[self class] _canAddOperationIntoQueue:taskOperation]) {
+                [self.operationQueue addOperation:taskOperation];                
+            }
+        }
+        [self.notInQueueTaskOperationList removeAllObjects];
+    });
+}
+
+
+-(void)startTaskOperationForKey:(id)key
+{
+    sync_lock(self.lock, ^{
+        YZHTaskOperation *taskOperation = [self.taskOperationMapTable objectForKey:key];
+        if ([[self class] _canAddOperationIntoQueue:taskOperation] && [self.notInQueueTaskOperationList containsObject:taskOperation]) {
+            [self.operationQueue addOperation:taskOperation];
+        }
+        [self.notInQueueTaskOperationList removeObject:taskOperation];
+    });
 }
 
 -(YZHTaskOperation*)taskOperationForKey:(id)key
@@ -144,11 +194,6 @@
     [taskOperation cancel];
 }
 
--(void)printAllTaskOparations
-{
-    NSLog(@"allINQueus=%@,cnt=%ld",self.operationQueue.operations,self.operationQueue.operationCount);
-}
-
 #pragma mark private
 -(void)_willStartAction:(id)key
 {
@@ -157,9 +202,14 @@
 -(void)_didFinishAction:(id)key
 {
     sync_lock(self.lock, ^{
-        NSLog(@"%@-didFinish.operationCnt=%ld,operations=%@",key,self.operationQueue.operationCount,self.operationQueue.operations);
-        
+        YZHTaskOperation *taskOperation = [self.taskOperationMapTable objectForKey:key];
         [self.taskOperationMapTable removeObjectForKey:key];
+        /*如果外部持有了taskOperation，导致notInQueueTaskOperationList没有释放掉，
+         *所以这里从notInQueueTaskOperationList中remove掉,
+         *在有依赖关系的operation时，就会对operation产生强引用，就不会在释放完成时释放掉
+         */
+        [self.notInQueueTaskOperationList removeObject:taskOperation];
+        NSLog(@"%@,%@",self.taskOperationMapTable,self.notInQueueTaskOperationList);
     });
 }
 

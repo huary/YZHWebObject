@@ -7,6 +7,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 
 UIKIT_EXTERN NSNotificationName const YZHTaskOperationStartNotification;
 UIKIT_EXTERN NSNotificationName const YZHTaskOperationWillFinishNotification;

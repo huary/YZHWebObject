@@ -130,7 +130,12 @@ NSNotificationName const YZHTaskOperationDidFinishNotification = @"YZHTaskOperat
 
 -(NSString*)description
 {
-    return [NSString stringWithFormat:@"isCancelled=%d,isExecuting=%d,isFinished=%d,isConcurrent=%d,isAsynchronous=%d,isReady=%d",self.isCancelled,self.isExecuting,self.isFinished,self.concurrent,self.isAsynchronous,self.isReady];
+    return [NSString stringWithFormat:@"key=%@,isCancelled=%d,isExecuting=%d,isFinished=%d,isConcurrent=%d,isAsynchronous=%d,isReady=%d",self.key,self.isCancelled,self.isExecuting,self.isFinished,self.concurrent,self.isAsynchronous,self.isReady];
+}
+
+-(void)dealloc
+{
+    NSLog(@"taskOperation.key=%@---dealloc",self.key);
 }
 
 
